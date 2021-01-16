@@ -5,6 +5,7 @@ from my_lex import build_lex, tokens
 mem_index = 0 # id of first empty memory cell
 symbol_table = [] #every record is a list which holds following attributes of a symbol:
                   #(name, if_tab, span_start, span_end, mem_id, if_initialized)
+iterators = []
 
 ### SYMBOL TABLE FUNCTIONS ###
 
@@ -69,6 +70,8 @@ def load_var_to_register(var_addr, reg, ln):
     i = get_symbol_by_mem_id(var_addr)
     if not symbol_table[i][5]:
         raise Exception('Błąd w linii {0:}: Użycie niezainicjowanej zmiennej {1:}'.format(ln, symbol_table[i][0]))
+    if symbol_table[i][0].startswith('TI'):
+        iterators.append(symbol_table[i][0])
     return load_val_to_register(var_addr, reg) + 'LOAD {} {}\n'.format(reg, reg)
 
 # loading a value held by a table cell indexed by another variable 
@@ -186,7 +189,7 @@ def p_while_loop(p):
     code = p[2]
     cond_len = len(p[2].split('\n'))
     com_len = len(p[4].split('\n'))
-    code += 'JZERO a 2\n' + 'JUMP {}\n'.format(com_len + 1) + p[4] + 'JUMP -{}\n'.format(com_len + cond_len + 1)
+    code += 'JZERO a 2\n' + 'JUMP {}\n'.format(com_len + 1) + p[4] + 'JUMP -{}\n'.format(com_len + cond_len)
     p[0] = code
 
 def p_repeat_until_loop(p):
@@ -206,62 +209,78 @@ def p_for_iter(p):
 def p_for_to_loop(p):
     '''command : FOR iter FROM value TO value DO commands ENDFOR
                | FOR iter FROM value DOWNTO value DO commands ENDFOR'''
-    global symbol_table, mem_index
+    global symbol_table, mem_index, iterators
     iter_addr = get_mem_id_by_name('TI'+p[2], p.lineno(1)) # iterator's address
     end_addr = get_mem_id_by_name('TE'+p[2], p.lineno(1)) # final value's address
-
     code = ''
-    if p[4][1]: #value1 is a variable
-        if type(p[4][0]) is tuple: #variable is a table cell indexed by another variable
-            code += load_tab_to_register(*p[4][0], 'c', 'b', p.lineno(1))
-        else:
-            if p[4][0] == iter_addr:
-                code += load_var_to_register(get_mem_id_by_name(p[2], p.lineno(1)), 'c', p.lineno(1))
+    if (not p[4][1]) and (not p[6][1]) and (abs(p[4][0]-p[6][0])+1 < 21):
+        if 'TI'+p[2] in iterators:
+            iterators.pop(iterators.index('TI'+p[2]))
+            load_addr = load_val_to_register(iter_addr, 'f')
+            load_iter = load_var_to_register(iter_addr, 'c', p.lineno(1))
+            code +=  load_val_to_register(p[4][0], 'c') + load_addr + 'STORE c f\n'
+            mod = ''
+            if p[5] == 'TO':
+                mod += 'INC c\n'
             else:
-                code += load_var_to_register(p[4][0], 'c', p.lineno(1))
-    else: # value1 is a number
-        code += load_val_to_register(p[4][0], 'c')
-    # iterator's initial value is now loaded to reg c
-    code += load_val_to_register(iter_addr, 'f') + 'STORE c f\n' # storing iterator
-    i = get_symbol_by_mem_id(iter_addr)
-    symbol_table[i][5] = True
-
-    if p[6][1]: #value2 is a variable
-        if type(p[6][0]) is tuple: #variable is a table cell indexed by another variable
-            code += load_tab_to_register(*p[6][0], 'e', 'b', p.lineno(1))
+                mod += 'DEC c\n'
+            loop = p[8] + load_iter + mod + load_addr + 'STORE c f\n'
+            for _ in range(abs(p[4][0]-p[6][0])+1):
+                code += loop
         else:
-            if p[6][0] == iter_addr:
-                code += load_var_to_register(get_mem_id_by_name(p[2], p.lineno(1)), 'f', p.lineno(1))
-            else:
-                code += load_var_to_register(p[6][0], 'e', p.lineno(1))
-    else: # value2 is a number
-        code += load_val_to_register(p[6][0], 'e')
-    # final value of iterator is now loaded to reg e
-    code += 'INC f\n' + 'STORE e f\n'# temp's are next to each other in memory, so by inc f we get end_addr in reg f
-    i = get_symbol_by_mem_id(end_addr)
-    symbol_table[i][5] = True
-
-    load_end =  load_var_to_register(end_addr, 'e', p.lineno(1))
-    ld_end_len = len(load_end.split('\n'))
-
-    load_iter = load_var_to_register(iter_addr, 'c', p.lineno(1))
-    ld_iter_len = len(load_iter.split('\n'))
-
-    load_iter_addr = load_val_to_register(iter_addr, 'f')
-    ld_iter_addr_len = len(load_iter_addr.split('\n'))
-
-    com_len = len(p[8].split('\n'))
-
-    if p[5] == 'TO':
-        code += load_end + load_iter + 'SUB c e\n' + 'JZERO c 2\n' + 'JUMP {}\n'.format(com_len+ld_iter_addr_len + 3) + p[8] + load_iter_addr +\
-             'LOAD c f\n'+ 'INC c\n' + 'STORE c f\n' +\
-             'JUMP -{}\n'.format(com_len + ld_iter_addr_len + ld_end_len + ld_iter_len + 2)
+            for _ in range(abs(p[4][0]-p[6][0])+1):
+                code += p[8]
     else:
-        code += load_end + load_iter + 'JZERO c {}\n'.format(6+com_len+ld_iter_addr_len) + 'SUB e c\n' + 'JZERO e 2\n' + 'JUMP {}\n'.format(com_len + ld_iter_addr_len + 4) +\
-                p[8] + load_iter_addr + 'LOAD c f\n'+ 'DEC c\n' + 'STORE c f\n' +\
-                'JUMP -{}\n'.format(com_len + ld_end_len + ld_iter_addr_len + ld_iter_len + 3) + 'JZERO e 2\n' + 'JUMP {}\n'.format(com_len) + p[8]
-    p[0] = code
+        if p[4][1]: #value1 is a variable
+            if type(p[4][0]) is tuple: #variable is a table cell indexed by another variable
+                code += load_tab_to_register(*p[4][0], 'c', 'b', p.lineno(1))
+            else:
+                if p[4][0] == iter_addr:
+                    code += load_var_to_register(get_mem_id_by_name(p[2], p.lineno(1)), 'c', p.lineno(1))
+                else:
+                    code += load_var_to_register(p[4][0], 'c', p.lineno(1))
+        else: # value1 is a number
+            code += load_val_to_register(p[4][0], 'c')
+        # iterator's initial value is now loaded to reg c
+        code += load_val_to_register(iter_addr, 'f') + 'STORE c f\n' # storing iterator
+        i = get_symbol_by_mem_id(iter_addr)
+        symbol_table[i][5] = True
 
+        if p[6][1]: #value2 is a variable
+            if type(p[6][0]) is tuple: #variable is a table cell indexed by another variable
+                code += load_tab_to_register(*p[6][0], 'e', 'b', p.lineno(1))
+            else:
+                if p[6][0] == iter_addr:
+                    code += load_var_to_register(get_mem_id_by_name(p[2], p.lineno(1)), 'f', p.lineno(1))
+                else:
+                    code += load_var_to_register(p[6][0], 'e', p.lineno(1))
+        else: # value2 is a number
+            code += load_val_to_register(p[6][0], 'e')
+        # final value of iterator is now loaded to reg e
+        code += 'INC f\n' + 'STORE e f\n'# temp's are next to each other in memory, so by inc f we get end_addr in reg f
+        i = get_symbol_by_mem_id(end_addr)
+        symbol_table[i][5] = True
+
+        load_end =  load_var_to_register(end_addr, 'e', p.lineno(1))
+        ld_end_len = len(load_end.split('\n'))
+
+        load_iter = load_var_to_register(iter_addr, 'c', p.lineno(1))
+        ld_iter_len = len(load_iter.split('\n'))
+
+        load_iter_addr = load_val_to_register(iter_addr, 'f')
+        ld_iter_addr_len = len(load_iter_addr.split('\n'))
+
+        com_len = len(p[8].split('\n'))
+
+        if p[5] == 'TO':
+            code += load_end + load_iter + 'SUB c e\n' + 'JZERO c 2\n' + 'JUMP {}\n'.format(com_len+ld_iter_addr_len + 3) + p[8] + load_iter_addr +\
+                 'LOAD c f\n'+ 'INC c\n' + 'STORE c f\n' +\
+                'JUMP -{}\n'.format(com_len + ld_iter_addr_len + ld_end_len + ld_iter_len + 2)
+        else:
+            code += load_end + load_iter + 'JZERO c {}\n'.format(6+com_len+ld_iter_addr_len) + 'SUB e c\n' + 'JZERO e 2\n' + 'JUMP {}\n'.format(com_len + ld_iter_addr_len + 4) +\
+                    p[8] + load_iter_addr + 'LOAD c f\n'+ 'DEC c\n' + 'STORE c f\n' +\
+                    'JUMP -{}\n'.format(com_len + ld_end_len + ld_iter_addr_len + ld_iter_len + 3) + 'JZERO e 2\n' + 'JUMP {}\n'.format(com_len) + p[8]
+    p[0] = code
     mem_index -= 2
     symbol_table.pop(get_symbol_by_mem_id(iter_addr))
     symbol_table.pop(get_symbol_by_mem_id(end_addr))
@@ -320,11 +339,28 @@ def p_expr_value(p):
 def p_expr_add_sub(p):
     '''expr : value PLUS value
             | value MINUS value'''
-    code = load_values_to_registers([p[1], p[3]], [('a', 'b'), ('b', 'd')], p.lineno(2)) # loading val1 to reg a and val2 to reg b
-    if p[2] == '+':
-        code += 'ADD a b\n'
+    code = ''
+    if not p[3][1] and p[3][0] < 10:
+        if p[1][1]:
+            if type(p[1][0]) is tuple:
+                code += load_tab_to_register(*p[1][0], 'a', 'b', p.lineno(2))
+            else:
+                code += load_var_to_register(p[1][0], 'a', p.lineno(2))
+        else:
+            code += load_val_to_register(p[1][0], 'a')
+        mod = ''
+        if p[2] == '+':
+            mod = 'INC a\n'
+        else:
+            mod = 'DEC a\n'
+        for _ in range(p[3][0]):
+            code += mod
     else:
-        code += 'SUB a b\n'
+        code += load_values_to_registers([p[1], p[3]], [('a', 'b'), ('b', 'd')], p.lineno(2)) # loading val1 to reg a and val2 to reg b
+        if p[2] == '+':
+            code += 'ADD a b\n'
+        else:
+            code += 'SUB a b\n'
     p[0] = code
 
 def p_expr_mul(p):
