@@ -365,42 +365,72 @@ def p_expr_add_sub(p):
 
 def p_expr_mul(p):
     'expr : value TIMES value'
-    code = load_values_to_registers([p[1], p[3]], [('b', 'd'), ('d', 'e')], p.lineno(2)) # loading val1 to reg b and val2 to reg d
-    load_b_b = ''
-    load_b_d = ''
-    if p[3][1]: #value2 is a variable, meaning p[3][0] is its address
-        if type(p[3][0]) is tuple: #variable is a table cell indexed by another variable
-            load_b_b = load_tab_to_register(*p[3][0], 'b', 'e', p.lineno(2))
-            load_b_d = load_tab_to_register(*p[3][0], 'd', 'e', p.lineno(2))
-        else: #variable is an ordinary variable or a table cell indexed by a number
-            load_b_b = load_var_to_register(p[3][0], 'b', p.lineno(2))
-            load_b_d = load_var_to_register(p[3][0], 'd', p.lineno(2))
-    else: #value is a number
-        load_b_b = load_val_to_register(p[3][0], 'b')
-        load_b_d = load_val_to_register(p[3][0], 'd')
-    load_b_len = len(load_b_b.split('\n'))
-    load_d_len = len(load_b_d.split('\n'))
-    code += 'RESET a\n' + 'SUB d b\n' + 'JZERO d {}\n'.format(3+load_b_len) + 'RESET d\n' + 'ADD d b\n' + load_b_b + 'JUMP {}\n'.format(load_d_len) + load_b_d +\
-            'JZERO d 9\n' + 'JODD d 4\n' + 'SHL b\n' + 'SHR d\n' + 'JUMP -4\n' +\
-            'ADD a b\n' + 'SHL b\n' + 'SHR d\n' + 'JUMP -8\n'
+    code = ''
+    if not p[3][1] and p[3][0] < 3:
+        if p[3][0] == 0:
+            code = 'RESET a\n'
+        else:
+            if p[1][1]:
+                if type(p[1][0]) is tuple:
+                    code = load_tab_to_register(*p[1][0], 'a', 'b', p.lineno(2))
+                else:
+                    code = load_var_to_register(p[1][0], 'a', p.lineno(2))
+            else:
+                code = load_val_to_register(p[1][0], 'a')
+            if p[3][0] == 2:
+                code += 'SHL a\n' 
+    else:
+        code = load_values_to_registers([p[1], p[3]], [('b', 'd'), ('d', 'e')], p.lineno(2)) # loading val1 to reg b and val2 to reg d
+        code += 'RESET a\n' + 'RESET e\n' + 'ADD e d\n' + 'SUB d b\n' + 'JZERO d 6\n' + 'RESET d\n' + 'ADD d b\n' +\
+                'RESET b\n' + 'ADD b e\n' + 'JUMP 2\n' + 'ADD d e\n' + 'JZERO d 9\n' + 'JODD d 4\n' + 'SHL b\n' +\
+                'SHR d\n' + 'JUMP -4\n' + 'ADD a b\n' + 'SHL b\n' + 'SHR d\n' + 'JUMP -8\n'
     p[0] = code
 
 def p_expr_div(p):
     'expr : value DIVIDE value'
-    code = load_values_to_registers([p[1], p[3]], [('b', 'd'), ('d', 'e')], p.lineno(2)) # loading val1 to reg b and val2 to reg d
-    code += 'RESET a\n' + 'JZERO d 31\n' + 'RESET e\n' + 'INC e\n' + 'RESET f\n' + 'ADD f b\n' + 'SUB f d\n' + 'JZERO f 5\n' + 'ADD f d\n' +\
-            'SHL d\n' + 'SHL e\n' + 'JUMP -5\n' + 'ADD f d\n' + 'SUB f b\n' + 'JZERO f 3\n' + 'SHR d\n' + 'SHR e\n' + 'SUB b d\n' +\
-            'ADD a e\n' + 'SHR d\n' + 'SHR e\n'  + 'JZERO e 11\n'+ 'RESET f\n' + 'ADD f b\n' + 'SUB f d \n' + 'JZERO f 2\n' + 'JUMP -9\n' +\
-            'ADD f d\n' + 'SUB f b\n' + 'JZERO f 2\n' + 'JUMP -11\n' + 'ADD a e\n'
+    code = ''
+    if not p[3][1] and p[3][0] < 3:
+        if p[3][0] == 0:
+            code = 'RESET a\n'
+        else:
+            if p[1][1]:
+                if type(p[1][0]) is tuple:
+                    code = load_tab_to_register(*p[1][0], 'a', 'b', p.lineno(2))
+                else:
+                    code = load_var_to_register(p[1][0], 'a', p.lineno(2))
+            else:
+                code = load_val_to_register(p[1][0], 'a')
+            if p[3][0] == 2:
+                code += 'SHR a\n' 
+    else:
+        code = load_values_to_registers([p[1], p[3]], [('b', 'd'), ('d', 'e')], p.lineno(2)) # loading val1 to reg b and val2 to reg d
+        code += 'RESET a\n' + 'JZERO d 31\n' + 'RESET e\n' + 'INC e\n' + 'RESET f\n' + 'ADD f b\n' + 'SUB f d\n' + 'JZERO f 5\n' + 'ADD f d\n' +\
+                'SHL d\n' + 'SHL e\n' + 'JUMP -5\n' + 'ADD f d\n' + 'SUB f b\n' + 'JZERO f 3\n' + 'SHR d\n' + 'SHR e\n' + 'SUB b d\n' +\
+                'ADD a e\n' + 'SHR d\n' + 'SHR e\n'  + 'JZERO e 11\n'+ 'RESET f\n' + 'ADD f b\n' + 'SUB f d \n' + 'JZERO f 2\n' + 'JUMP -9\n' +\
+                'ADD f d\n' + 'SUB f b\n' + 'JZERO f 2\n' + 'JUMP -11\n' + 'ADD a e\n'
     p[0] = code
 
 def p_expr_mod(p):
     'expr : value MODULO value'
-    code = load_values_to_registers([p[1], p[3]], [('a', 'b'), ('d', 'e')], p.lineno(2)) # loading val1 to reg a and val2 to reg d
-    code += 'RESET b\n' + 'JZERO d 34\n' + 'RESET e\n' + 'INC e\n' + 'RESET f\n' + 'ADD f a\n' + 'SUB f d\n' + 'JZERO f 5\n' + 'ADD f d\n' +\
-            'SHL d\n' + 'SHL e\n' + 'JUMP -5\n' + 'ADD f d\n' + 'SUB f a\n' + 'JZERO f 4\n' + 'SHR d\n' + 'SHR e\n' + 'JZERO e 19\n' + 'SUB a d\n' +\
-            'ADD b e\n' + 'SHR d\n' + 'SHR e\n'  + 'JZERO e 12\n'+ 'RESET f\n' + 'ADD f a\n' + 'SUB f d \n' + 'JZERO f 2\n' + 'JUMP -9\n' +\
-            'ADD f d\n' + 'SUB f a\n' + 'JZERO f 2\n' + 'JUMP -11\n' + 'ADD b e\n' + 'SUB a d\n' + 'JUMP 2\n' + 'RESET a\n'
+    code = ''
+    if not p[3][1] and p[3][0] < 3:
+        if p[3][0] < 2:
+            code = 'RESET a\n'
+        else:
+            if p[1][1]:
+                if type(p[1][0]) is tuple:
+                    code = load_tab_to_register(*p[1][0], 'c', 'd', p.lineno(2))
+                else:
+                    code = load_var_to_register(p[1][0], 'b', p.lineno(2))
+            else:
+                code = load_val_to_register(p[1][0], 'b')
+            code += 'RESET a\n' + 'JODD b 2\n' + 'JUMP 2\n' + 'INC a\n'
+    else:
+        code = load_values_to_registers([p[1], p[3]], [('a', 'b'), ('d', 'e')], p.lineno(2)) # loading val1 to reg a and val2 to reg d
+        code += 'RESET b\n' + 'JZERO d 34\n' + 'RESET e\n' + 'INC e\n' + 'RESET f\n' + 'ADD f a\n' + 'SUB f d\n' + 'JZERO f 5\n' + 'ADD f d\n' +\
+                'SHL d\n' + 'SHL e\n' + 'JUMP -5\n' + 'ADD f d\n' + 'SUB f a\n' + 'JZERO f 4\n' + 'SHR d\n' + 'SHR e\n' + 'JZERO e 19\n' + 'SUB a d\n' +\
+                'ADD b e\n' + 'SHR d\n' + 'SHR e\n'  + 'JZERO e 12\n'+ 'RESET f\n' + 'ADD f a\n' + 'SUB f d \n' + 'JZERO f 2\n' + 'JUMP -9\n' +\
+                'ADD f d\n' + 'SUB f a\n' + 'JZERO f 2\n' + 'JUMP -11\n' + 'ADD b e\n' + 'SUB a d\n' + 'JUMP 2\n' + 'RESET a\n'
     p[0] = code
 
 ### CONDITIONS ###
@@ -503,4 +533,3 @@ if __name__ == '__main__':
             f.write(compiled)
     except Exception as e:
         print(e)
-        #raise e
